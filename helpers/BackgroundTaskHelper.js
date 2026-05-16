@@ -200,13 +200,10 @@ async function runIPCheckAndEmail() {
         // Auto-update Cloudflare DNS records
         await updateAllCloudflareDns(currentIP);
 
-    } else {
-        console.log('WAN IP has not changed.');
     }
 };
 
 // Schedule the cron job to run every 10 minutes
 cron.schedule('*/10 * * * *', () => {
-    console.log('Running IP check and email...');
     runIPCheckAndEmail();
 });
