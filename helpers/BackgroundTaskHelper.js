@@ -2,9 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
-const cron = require('node-cron')
+const cron = require('node-cron');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const WAN_JON_PATH = path.join(__dirname, '..', 'json', 'wan-ip.json');
+
+// Cloudflare configuration
+const CF_URL = process.env.CLOUD_FLARE_URL;
+const CF_TOKEN = process.env.CLOUD_FLARE_TOKEN;
+const CF_ZONE_ID = process.env.CLOUD_FLARE_ZONE_ID;
+const CF_DNS_NAMES = (process.env.CLOUD_FLARE_DNS_NAMES || '').split(',').map(s => s.trim()).filter(Boolean);
+
 // Email configuration
 const emailConfig = {
     service: 'Gmail', // e.g., 'Gmail', 'Outlook', 'SendGrid', etc.
@@ -13,15 +21,6 @@ const emailConfig = {
         pass: 'qzegeugctecrshwn'
     }
 };
-
-
-// // api:4456be0f
-// // secret:864X00low1J69qpn
-
-// const nexmo = new Nexmo({
-//     apiKey: '4456be0f',
-//     apiSecret: '864X00low1J69qpn'
-// });
 
 async function getCurrentIP() {
     const apis = [
@@ -84,19 +83,98 @@ async function sendEmail(newIP) {
     }
 }
 
-// function sendSMS(){
-//     nexmo.message.sendSms('YOUR_VIRTUAL_NUMBER', '+84978527669', 'Hello from Nexmo!', (err, responseData) => {
-//         if (err) {
-//           console.log('Error sending SMS:', err);
-//         } else {
-//           if (responseData.messages[0]['status'] === '0') {
-//             console.log('SMS sent successfully.');
-//           } else {
-//             console.log('SMS failed with error:', responseData.messages[0]['error-text']);
-//           }
-//         }
-//       });
-// }
+/**
+ * Tìm DNS record ID theo tên domain (type A)
+ * @param {string} dnsName - tên domain, ví dụ: "vugroup.org"
+ * @returns {object|null} - DNS record object hoặc null
+ */
+async function findDnsRecord(dnsName) {
+    try {
+        const url = `${CF_URL}/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=${dnsName}`;
+        const response = await axios.get(url, {
+            headers: {
+                'Authorization': `Bearer ${CF_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 10000
+        });
+
+        if (response.data.success && response.data.result.length > 0) {
+            return response.data.result[0];
+        }
+        console.warn(`[Cloudflare] No A record found for: ${dnsName}`);
+        return null;
+    } catch (error) {
+        console.error(`[Cloudflare] Error finding DNS record for ${dnsName}:`, error.message);
+        return null;
+    }
+}
+
+/**
+ * Update DNS record type A với IP mới
+ * @param {string} recordId - Cloudflare DNS record ID
+ * @param {string} dnsName - tên domain
+ * @param {string} newIP - IP mới cần update
+ * @returns {boolean} - true nếu update thành công
+ */
+async function updateDnsRecord(recordId, dnsName, newIP) {
+    try {
+        const url = `${CF_URL}/client/v4/zones/${CF_ZONE_ID}/dns_records/${recordId}`;
+        const response = await axios.put(url, {
+            type: 'A',
+            name: dnsName,
+            content: newIP,
+            ttl: 1,       // Auto TTL
+            proxied: true  // Qua Cloudflare proxy (orange cloud)
+        }, {
+            headers: {
+                'Authorization': `Bearer ${CF_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 10000
+        });
+
+        if (response.data.success) {
+            console.log(`[Cloudflare] ✅ Updated ${dnsName} -> ${newIP}`);
+            return true;
+        } else {
+            console.error(`[Cloudflare] ❌ Failed to update ${dnsName}:`, response.data.errors);
+            return false;
+        }
+    } catch (error) {
+        console.error(`[Cloudflare] ❌ Error updating ${dnsName}:`, error.message);
+        return false;
+    }
+}
+
+/**
+ * Update tất cả DNS records trong danh sách CLOUD_FLARE_DNS_NAMES
+ * @param {string} newIP - IP mới
+ */
+async function updateAllCloudflareDns(newIP) {
+    if (!CF_ZONE_ID || !CF_TOKEN || CF_DNS_NAMES.length === 0) {
+        console.warn('[Cloudflare] Missing config (ZONE_ID, TOKEN, or DNS_NAMES). Skipping DNS update.');
+        return;
+    }
+
+    console.log(`[Cloudflare] Updating ${CF_DNS_NAMES.length} DNS records to IP: ${newIP}`);
+
+    for (const dnsName of CF_DNS_NAMES) {
+        const record = await findDnsRecord(dnsName);
+        if (!record) {
+            console.warn(`[Cloudflare] ⚠️ Skipping ${dnsName} - record not found`);
+            continue;
+        }
+
+        // Nếu IP đã đúng rồi thì skip
+        if (record.content === newIP) {
+            console.log(`[Cloudflare] ⏭️ ${dnsName} already points to ${newIP}, skipping.`);
+            continue;
+        }
+
+        await updateDnsRecord(record.id, dnsName, newIP);
+    }
+}
 
 
 async function runIPCheckAndEmail() {
@@ -118,6 +196,9 @@ async function runIPCheckAndEmail() {
         writeWanIPFile(currentIP);
         console.log('wan-ip.json has been updated with the new IP:', currentIP);
         sendEmail(currentIP);
+
+        // Auto-update Cloudflare DNS records
+        await updateAllCloudflareDns(currentIP);
 
     } else {
         console.log('WAN IP has not changed.');
