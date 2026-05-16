@@ -204,6 +204,6 @@ async function runIPCheckAndEmail() {
 };
 
 // Schedule the cron job to run every 3 minutes
-cron.schedule('*/3 * * * *', () => {
+cron.schedule('*/1 * * * *', () => {
     runIPCheckAndEmail();
 });
