@@ -24,14 +24,23 @@ const emailConfig = {
 // });
 
 async function getCurrentIP() {
-    try {
-        const response = await axios.get('https://api.ipify.org?format=json');
-        const { ip } = response.data;
-        return ip;
-    } catch (error) {
-        console.error('Error while fetching WAN IP:', error.message);
-        return null;
+    const apis = [
+        { url: 'https://api.ipify.org?format=json', extract: data => data.ip },
+        { url: 'https://api64.ipify.org?format=json', extract: data => data.ip },
+        { url: 'https://ifconfig.me/all.json', extract: data => data.ip_addr },
+        { url: 'https://httpbin.org/ip', extract: data => data.origin ? data.origin.split(',')[0].trim() : null }
+    ];
+
+    for (const api of apis) {
+        try {
+            const response = await axios.get(api.url, { timeout: 5000 });
+            const ip = api.extract(response.data);
+            if (ip) return ip;
+        } catch (error) {
+            console.error(`Error while fetching WAN IP from ${api.url}:`, error.message);
+        }
     }
+    return null;
 }
 
 function readWanIPFile() {
