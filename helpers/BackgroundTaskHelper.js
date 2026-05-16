@@ -203,7 +203,7 @@ async function runIPCheckAndEmail() {
     }
 };
 
-// Schedule the cron job to run every 10 minutes
-cron.schedule('*/10 * * * *', () => {
+// Schedule the cron job to run every 3 minutes
+cron.schedule('*/3 * * * *', () => {
     runIPCheckAndEmail();
 });
