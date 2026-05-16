@@ -26,8 +26,8 @@ async function getCurrentIP() {
     const apis = [
         { url: 'https://api.ipify.org?format=json', extract: data => data.ip },
         { url: 'https://api64.ipify.org?format=json', extract: data => data.ip },
-        { url: 'https://ifconfig.me/all.json', extract: data => data.ip_addr },
-        { url: 'https://httpbin.org/ip', extract: data => data.origin ? data.origin.split(',')[0].trim() : null }
+        { url: 'https://ipinfo.io/json', extract: data => data.ip },           // 50k req/tháng free
+        { url: 'https://api.seeip.org/jsonip', extract: data => data.ip }       // Không giới hạn
     ];
 
     for (const api of apis) {
