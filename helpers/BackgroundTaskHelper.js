@@ -117,7 +117,7 @@ async function findDnsRecord(dnsName) {
  * @param {string} newIP - IP mới cần update
  * @returns {boolean} - true nếu update thành công
  */
-async function updateDnsRecord(recordId, dnsName, newIP) {
+async function updateDnsRecord(recordId, dnsName, newIP, proxied = true) {
     try {
         const url = `${CF_URL}/client/v4/zones/${CF_ZONE_ID}/dns_records/${recordId}`;
         const response = await axios.put(url, {
@@ -125,7 +125,7 @@ async function updateDnsRecord(recordId, dnsName, newIP) {
             name: dnsName,
             content: newIP,
             ttl: 1,       // Auto TTL
-            proxied: true  // Qua Cloudflare proxy (orange cloud)
+            proxied: proxied  // Qua Cloudflare proxy (orange cloud) hoặc DNS only
         }, {
             headers: {
                 'Authorization': `Bearer ${CF_TOKEN}`,
@@ -135,7 +135,7 @@ async function updateDnsRecord(recordId, dnsName, newIP) {
         });
 
         if (response.data.success) {
-            console.log(`[Cloudflare] ✅ Updated ${dnsName} -> ${newIP}`);
+            console.log(`[Cloudflare] ✅ Updated ${dnsName} -> ${newIP} (proxied: ${proxied})`);
             return true;
         } else {
             console.error(`[Cloudflare] ❌ Failed to update ${dnsName}:`, response.data.errors);
@@ -166,13 +166,15 @@ async function updateAllCloudflareDns(newIP) {
             continue;
         }
 
-        // Nếu IP đã đúng rồi thì skip
-        if (record.content === newIP) {
-            console.log(`[Cloudflare] ⏭️ ${dnsName} already points to ${newIP}, skipping.`);
+        const expectedProxied = dnsName !== 'ip.vugroup.org';
+
+        // Nếu IP và trạng thái proxy đã đúng rồi thì skip
+        if (record.content === newIP && record.proxied === expectedProxied) {
+            console.log(`[Cloudflare] ⏭️ ${dnsName} already points to ${newIP} with proxied=${expectedProxied}, skipping.`);
             continue;
         }
 
-        await updateDnsRecord(record.id, dnsName, newIP);
+        await updateDnsRecord(record.id, dnsName, newIP, expectedProxied);
     }
 }
 
