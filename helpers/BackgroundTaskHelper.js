@@ -197,7 +197,7 @@ async function runIPCheckAndEmail() {
         console.log('WAN IP has changed. Updating wan-ip.json...');
         writeWanIPFile(currentIP);
         console.log('wan-ip.json has been updated with the new IP:', currentIP);
-        sendEmail(currentIP);
+        await sendEmail(currentIP);
 
         // Auto-update Cloudflare DNS records
         await updateAllCloudflareDns(currentIP);
@@ -205,7 +205,33 @@ async function runIPCheckAndEmail() {
     }
 };
 
-// Schedule the cron job to run every 3 minutes
-cron.schedule('*/5 * * * *', () => {
-    runIPCheckAndEmail();
+// Prevent unhandled promise rejections from crashing the process
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Process] Unhandled Rejection:', reason);
+});
+
+// Schedule the cron job to run every 5 minutes
+cron.schedule('*/5 * * * *', async () => {
+    try {
+        await runIPCheckAndEmail();
+    } catch (error) {
+        console.error('[Cron] Unexpected error during IP check:', error.message);
+    }
+});
+
+// Schedule Invoice Quickly ping every 4 hours
+const INVOICE_QUICKLY_TOKEN = process.env.INVOICE_QUICKLY_TOKEN;
+
+cron.schedule('0 */4 * * *', async () => {
+    try {
+        const response = await axios.get('https://invoice-quickly.com/api/cron/ping', {
+            headers: {
+                'Authorization': `Bearer ${INVOICE_QUICKLY_TOKEN}`
+            },
+            timeout: 10000
+        });
+        console.log(`[Invoice Quickly] ✅ Ping OK - Status: ${response.status}`);
+    } catch (error) {
+        console.error(`[Invoice Quickly] ❌ Ping failed:`, error.message);
+    }
 });
